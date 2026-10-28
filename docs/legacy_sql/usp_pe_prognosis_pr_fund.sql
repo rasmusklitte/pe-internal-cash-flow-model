@@ -1,0 +1,271 @@
+
+CREATE PROCEDURE [dbo].[usp_pe_prognosis_pr_fund]
+    @Fund NVARCHAR(100),
+    @Value2025 FLOAT,
+    @Value2026 FLOAT,
+    @Value2027 FLOAT,
+    @Value2028 FLOAT,
+    @Value2029 FLOAT,
+    @Value2030 FLOAT,
+    @Value2031 FLOAT,
+	@fx FLOAT,
+	@dato AS DATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Opret midlertidig tabel, hvis den ikke findes
+    IF OBJECT_ID('tempdb..#temp_fund_data') IS NOT NULL
+        DROP TABLE #temp_fund_data;
+
+	DROP TABLE IF EXISTS #temp_basis, #temp_basis_v2, #temp_fund_data, #final_table, #NAV_results, #result;
+
+    CREATE TABLE #temp_fund_data (
+        Fund NVARCHAR(100),
+        [2025] FLOAT,
+        [2026] FLOAT,
+        [2027] FLOAT,
+        [2028] FLOAT,
+        [2029] FLOAT,
+        [2030] FLOAT,
+        [2031] FLOAT,
+		fx FLOAT
+    );
+
+    -- Indsæt inputværdier i tabellen
+    INSERT INTO #temp_fund_data (Fund, [2025], [2026], [2027], [2028], [2029], [2030], [2031])
+    VALUES (@Fund, ISNULL(@Value2025,0), ISNULL(@Value2026,0), ISNULL(@Value2027,0), ISNULL(@Value2028,0),
+			ISNULL(@Value2029,0), ISNULL(@Value2030,0), ISNULL(@Value2031,0));
+
+    -- Opret midlertidig tabel til basisdata
+    DROP TABLE IF EXISTS #temp_basis;
+
+-- Opret midlertidig tabel til at samle resultater
+CREATE TABLE #result (
+    DATO DATE,
+    FOND NVARCHAR(50),
+    NAVN NVARCHAR(50),
+    VALUTA NVARCHAR(10),
+    VALUTA_KURS DECIMAL(18,6),
+    KUMULERET_AKTIER_PR_NAVN DECIMAL(18,6),
+    KUMULERET_AKTIER_PR_FOND DECIMAL(18,6),
+    EJERANDEL DECIMAL(18,6),
+    EGENKAPITAL DECIMAL(18,6),
+    NAV_DKK DECIMAL(18,6),
+    NAV_FREMMEDVALUTA DECIMAL(18,6)
+);
+
+DECLARE @FOND NVARCHAR(50) = @Fund;
+DECLARE @ULTIMO_DATO DATE
+SELECT @ULTIMO_DATO = MAX(t1.DATO) 
+FROM tbl_pe_fund_nav t1
+WHERE t1.FOND = @FOND AND t1.DATO <= @DATO;
+
+
+-- CTE til TILSAGN_ULTIMO per NAVN og TYPE op til @ULTIMO_DATO
+WITH CTE_Tilsagn_ultimo AS (
+    SELECT 
+        t1.NAVN,
+        t1.TYPE,
+        t1.TILSAGN_PR_DAGS_DATO AS TILSAGN_ULTIMO,
+        ROW_NUMBER() OVER (PARTITION BY t1.NAVN, t1.TYPE ORDER BY t1.DATO DESC) AS RN
+    FROM tbl_pe_transactions   t1
+    WHERE t1.FOND = @FOND AND t1.DATO <= @ULTIMO_DATO
+),
+-- CTE for ANTAL_AKTIER_PRIMO
+CTE_Aktier_primo AS (
+    SELECT 
+        t1.NAVN, 
+        t1.TYPE,
+		SUM(
+            CASE 
+                WHEN t1.EVENT IN ('DRAWDOWN', 'CLOSING', 'KØB') THEN ISNULL(t1.ANTAL_AKTIER, 0)
+                WHEN t1.EVENT = 'SALG' THEN -ISNULL(t1.ANTAL_AKTIER, 0)
+                ELSE 0
+            END
+        ) AS ANTAL_AKTIER_PRIMO
+    FROM tbl_pe_transactions   t1
+    WHERE t1.FOND = @FOND  AND t1.EVENT IN ('DRAWDOWN', 'CLOSING', 'KØB', 'SALG') --AND t1.DATO <= @PRIMO_DATO
+    GROUP BY t1.NAVN, t1.TYPE 
+),
+CTE_Aktier_ultimo AS (
+    SELECT 
+        t1.NAVN, 
+        t1.TYPE,
+		SUM(
+            CASE 
+                WHEN t1.EVENT IN ('DRAWDOWN', 'CLOSING', 'KØB') THEN ISNULL(t1.ANTAL_AKTIER, 0)
+                WHEN t1.EVENT = 'SALG' THEN -ISNULL(t1.ANTAL_AKTIER, 0)
+                ELSE 0
+            END
+        ) AS ANTAL_AKTIER_ULTIMO
+    FROM tbl_pe_transactions   t1
+    WHERE t1.FOND = @FOND AND t1.DATO <= @ULTIMO_DATO AND t1.EVENT IN ('DRAWDOWN', 'CLOSING', 'KØB', 'SALG')
+    GROUP BY t1.NAVN, t1.TYPE 
+),
+-- Base CTE med unikke NAVN og TYPE
+CTE_Navn_Type AS (
+    SELECT DISTINCT 
+		t1.ID,
+        t1.NAVN,
+		t2.CVR,
+        t1.TYPE,
+		t1.VALUTA
+    FROM tbl_pe_transactions   t1
+	LEFT JOIN tbl_pe_stamdata t2 ON t2.ID = t1.ID
+    WHERE t1.FOND = @FOND AND t1.DATO <= @ULTIMO_DATO
+),
+-- Final CTE kombinerer alle data
+CTE_Final AS (
+    SELECT 
+		nt.ID,
+        nt.NAVN,
+		nt.CVR,
+        nt.TYPE,
+		nt.VALUTA,
+        tu.TILSAGN_ULTIMO,
+		ISNULL(ap2.ANTAL_AKTIER_ULTIMO, 0) / NULLIF((SELECT SUM(ANTAL_AKTIER_ULTIMO) FROM CTE_Aktier_ultimo), 0) AS EJERANDEL_ULTIMO,
+		(SELECT TOP 1 EGENKAPITAL_VAERDI FROM tbl_pe_fund_nav WHERE FOND = @FOND AND DATO <= @ULTIMO_DATO AND EGENKAPITAL_VAERDI IS NOT NULL ORDER BY DATO DESC) AS EGENKAPITAL
+    FROM CTE_Navn_Type nt
+    LEFT JOIN (SELECT NAVN, TYPE, TILSAGN_ULTIMO FROM CTE_Tilsagn_ultimo WHERE RN = 1) tu ON nt.NAVN = tu.NAVN AND nt.TYPE = tu.TYPE
+    LEFT JOIN CTE_Aktier_primo ap ON nt.NAVN = ap.NAVN AND nt.TYPE = ap.TYPE
+	LEFT JOIN CTE_Aktier_ultimo ap2 ON nt.NAVN = ap2.NAVN AND nt.TYPE = ap2.TYPE
+)
+
+-- Genererer den sidste tabel
+SELECT 
+    t1.ID,
+	t1.NAVN,
+	t1.VALUTA,
+	@ULTIMO_DATO AS DATO,
+	@FOND AS FOND,
+	t1.EJERANDEL_ULTIMO,
+	t1.EGENKAPITAL,
+	t1.EJERANDEL_ULTIMO * t1.EGENKAPITAL AS NAV,
+	t1.EJERANDEL_ULTIMO * t1.EGENKAPITAL / (SELECT VALUTA_KURS FROM tbl_pe_fund_nav WHERE DATO = @ULTIMO_DATO AND FOND = @FOND) AS NAV_FREMMEDVALUTA
+INTO #results
+FROM CTE_Final t1
+ORDER BY TILSAGN_ULTIMO DESC;
+
+DECLARE @SENESTE_DATO DATE
+SELECT @SENESTE_DATO = MAX(t1.DATO) 
+FROM #results t1
+WHERE t1.DATO <= @DATO
+
+-- Vis resultat for alle fonde
+SELECT t1.DATO, t1.FOND, t1.NAVN, t1.VALUTA, t2.VALUTA_KURS, t1.EGENKAPITAL, t1.EJERANDEL_ULTIMO, t1.NAV AS NAV_DKK, t1.NAV / t2.VALUTA_KURS AS NAV_FREMMED
+INTO #NAV_results
+FROM #results t1
+LEFT JOIN tbl_pe_fund_nav t2 ON t2.DATO = t1.DATO 
+AND t2.FOND COLLATE SQL_Latin1_General_CP1_CI_AS = t1.FOND
+WHERE t1.DATO = @SENESTE_DATO
+ORDER BY t1.NAVN, t1.FOND, t1.DATO;
+
+WITH CTE_NyesteTransaktion AS (
+    SELECT 
+        ID, 
+        NAVN, 
+        DATO, 
+		FOND,
+        TILSAGN_PR_DAGS_DATO,
+        ROW_NUMBER() OVER (PARTITION BY ID ORDER BY DATO DESC) AS rn
+    FROM tbl_pe_transactions  
+    WHERE FOND = @FOND 
+)
+SELECT 
+    t1.ID, 
+    t1.NAVN, 
+    t1.FOND, 
+    t2.TILSAGN_PR_DAGS_DATO AS COMMITMENT, 
+	t1.VALUTA,
+    SUM(t1.OPKRÆVET) AS DRAWDOWN,
+	SUM(t1.OPKRÆVET * t1.VALUTA_KURS)  AS DRAWDOWN_DKK,
+		SUM(CASE 
+            WHEN YEAR(t1.DATO) = YEAR(@DATO) 
+              AND t1.DATO <= @DATO 
+            THEN t1.OPKRÆVET 
+            ELSE 0 
+        END) AS LIKVIDITET_YTD,
+    @fx AS FX
+INTO #temp_basis
+FROM tbl_pe_transactions   t1
+LEFT JOIN CTE_NyesteTransaktion t2 ON t1.ID = t2.ID --AND t1.FOND = t2.FOND
+WHERE t1.DATO <= @DATO AND t1.FOND = @FOND AND rn = 1
+GROUP BY t1.ID, t1.NAVN, t1.FOND, t2.TILSAGN_PR_DAGS_DATO, t1.VALUTA;	
+
+-- Beregn commitment og drawdown-forhold
+SELECT 
+    t1.*, 
+    t1.COMMITMENT * FX AS COMMITMENT_DKK,
+    t1.DRAWDOWN / t1.COMMITMENT AS DRAWDOWN_PCT,
+    ROUND(t1.DRAWDOWN_DKK / (t1.COMMITMENT * FX), 2) AS DRAWDOWN_PCT_DKK
+INTO #temp_basis_v2
+FROM #temp_basis t1
+WHERE t1.COMMITMENT > 0;
+
+-- Udvidet beregning af likviditet og drawdown for hvert år 2025-2031
+SELECT 
+    t1.*, 
+	t1.COMMITMENT_DKK - t1.DRAWDOWN_DKK AS RESTTILSAGN_DKK,
+	t1.COMMITMENT - t1.DRAWDOWN AS RESTTILSAGN,
+
+    --t2.[2025], t2.[2026], t2.[2027], t2.[2028], t2.[2029], t2.[2030], t2.[2031],
+    
+    -- Akkumuleret likviditet per år
+    t2.[2025] * t1.COMMITMENT_DKK AS LIKVIDITET_2025,
+    t2.[2026] * t1.COMMITMENT_DKK AS LIKVIDITET_2026,
+    t2.[2027] * t1.COMMITMENT_DKK AS LIKVIDITET_2027,
+    t2.[2028] * t1.COMMITMENT_DKK AS LIKVIDITET_2028,
+    t2.[2029] * t1.COMMITMENT_DKK AS LIKVIDITET_2029,
+    t2.[2030] * t1.COMMITMENT_DKK AS LIKVIDITET_2030,
+    t2.[2031] * t1.COMMITMENT_DKK AS LIKVIDITET_2031,
+
+    -- Akkumuleret drawdown per år
+	(t2.[2025] ) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2025,
+    (t2.[2025] + t2.[2026]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2026,
+    (t2.[2025] + t2.[2026] + t2.[2027]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2027,
+    (t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2028,
+    (t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2029,
+    (t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029] + t2.[2030]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2030,
+    (t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029] + t2.[2030] + t2.[2031]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0) AS DRAWDOWN_2031,
+
+    -- Drawdown som procent af tilsagn per år
+	ROUND(((t2.[2025]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2025,
+    ROUND(((t2.[2025] + t2.[2026]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2026,
+    ROUND(((t2.[2025] + t2.[2026] + t2.[2027]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2027,
+    ROUND(((t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2028,
+    ROUND(((t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2029,
+    ROUND(((t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029] + t2.[2030]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2030,
+    ROUND(((t2.[2025] + t2.[2026] + t2.[2027] + t2.[2028] + t2.[2029] + t2.[2030] + t2.[2031]) * t1.COMMITMENT_DKK + ISNULL(t1.DRAWDOWN_DKK,0)) / t1.COMMITMENT_DKK, 2) AS DRAWDOWN_PCT_2031
+INTO #final_table
+FROM #temp_basis_v2 t1
+LEFT JOIN #temp_fund_data t2 
+    ON t1.FOND COLLATE SQL_Latin1_General_CP1_CI_AS = t2.Fund COLLATE SQL_Latin1_General_CP1_CI_AS
+WHERE FOND = @FOND
+ORDER BY t1.ID;
+
+
+SELECT t1.ID, t1.NAVN, t1.FOND, t2.DATO AS NAV_DATO,  ISNULL(t2.EGENKAPITAL,0) AS NAV_FOND_DKK, ISNULL(t2.EJERANDEL_ULTIMO,0) AS EJERANDEL, COMMITMENT, 
+	ISNULL(DRAWDOWN,0) , ISNULL(RESTTILSAGN,0), ISNULL(DRAWDOWN_PCT,0), ISNULL(NAV_FREMMED,0) AS NAV, t1.VALUTA,
+	FX, COMMITMENT_DKK, ISNULL(DRAWDOWN_DKK,0), ISNULL(RESTTILSAGN_DKK,0), ISNULL(DRAWDOWN_PCT_DKK,0), ISNULL(NAV_DKK,0),
+	ISNULL(LIKVIDITET_YTD,0), LIKVIDITET_2025, LIKVIDITET_2026, LIKVIDITET_2027, LIKVIDITET_2028, LIKVIDITET_2029, LIKVIDITET_2030, LIKVIDITET_2031,
+	DRAWDOWN_2025, DRAWDOWN_2026, DRAWDOWN_2027, DRAWDOWN_2028, DRAWDOWN_2029, DRAWDOWN_2030, DRAWDOWN_2031,
+	 DRAWDOWN_PCT_2025, DRAWDOWN_PCT_2026, DRAWDOWN_PCT_2027, DRAWDOWN_PCT_2028, DRAWDOWN_PCT_2029, DRAWDOWN_PCT_2030, DRAWDOWN_PCT_2031
+FROM #final_table t1
+LEFT JOIN #NAV_results t2 ON t1.FOND COLLATE SQL_Latin1_General_CP1_CI_AS = t2.FOND COLLATE SQL_Latin1_General_CP1_CI_AS
+	AND t1.NAVN COLLATE SQL_Latin1_General_CP1_CI_AS = t2.NAVN COLLATE SQL_Latin1_General_CP1_CI_AS
+--WHERE t1.NAVN = @NAVN
+ORDER BY COMMITMENT DESC
+
+-- Oprydning af midlertidige tabeller
+DROP TABLE IF EXISTS #temp_basis, #temp_basis_v2, #temp_fund_data, #final_table, #NAV_result, #results;
+
+
+
+
+
+
+
+
+
+END;

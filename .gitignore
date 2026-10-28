@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated reports and logs (contain investor data)
+exports/
+log/
+~$*
