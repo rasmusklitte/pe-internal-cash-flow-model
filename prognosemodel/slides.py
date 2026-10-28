@@ -388,6 +388,18 @@ def _aar_note(r):
             "prognose for resten af året.")
 
 
+def _metode(p):
+    """Metodens navn til undertitlen, så de to prognoseafsnit ikke kan forveksles."""
+    if p["motor"] == "excel":
+        return "baseline: Excel-metoden"
+    return f"ny metode: Takahashi-Alexander, {p['scenarie_navn'].lower()}"
+
+
+def _serie(p, tekst):
+    """Linjens navn: med scenariet for den nye metode, uden for baseline."""
+    return tekst if p["motor"] == "excel" else f"{tekst}, {p['scenarie_navn'].lower()}"
+
+
 def _motor_note(p):
     if p["motor"] == "excel":
         return ("Prognosen følger metoden fra det tidligere Excel-ark: kald = RC x tilsagn, "
@@ -582,7 +594,8 @@ def likviditetsprognose(prs, r, p):
     """Kald (under nul) og udlodninger (over) pr. år, stablet pr. fond, med årets netto som
     linje og de andre scenariers netto stiplet."""
     aar0 = r["dato"].year
-    s = _slide(prs, r, "Forventede kapitalkald og udlodninger", "prognose, beløb i mio. DKK")
+    s = _slide(prs, r, "Forventede kapitalkald og udlodninger",
+               f"{_metode(p)}, beløb i mio. DKK")
     fod = Fodnoter()
     fod.generel(_aar_note(r), _motor_note(p),
                 "Beløb i fremmed valuta er omregnet med dagskursen, også for de kommende år.",
@@ -607,7 +620,7 @@ def likviditetsprognose(prs, r, p):
         aar = {a["aar"]: a for a in res["linjer"]}
         soejler.append((f, [_mio(aar.get(a["aar"], {}).get("udlodning", 0)) for a in linjer],
                         farver[f], False))
-    netto = [("Netto, " + (p["scenarie_navn"] or p["motor"]).lower(),
+    netto = [(_serie(p, "Netto"),
               [_mio(a["netto"]) for a in linjer], SORT, False)]
     for noegle, total in (p.get("scenarier") or {}).items():
         if noegle == p["scenarie"]:
@@ -631,7 +644,7 @@ def _scenarienavn(p, noegle):
 def nav_prognose(prs, r, p):
     """NAV ved årets udgang stablet pr. fond (faktisk og prognose) og den akkumulerede
     likviditet i hvert scenarie."""
-    s = _slide(prs, r, "Forventet NAV og likviditet", "prognose, beløb i mio. DKK")
+    s = _slide(prs, r, "Forventet NAV og likviditet", f"{_metode(p)}, beløb i mio. DKK")
     fod = Fodnoter()
     fod.generel(_aar_note(r), _motor_note(p),
                 "Akkumuleret likviditet = alle udlodninger - alle indbetalinger fra start.")
@@ -652,7 +665,7 @@ def nav_prognose(prs, r, p):
         aar = {a["aar"]: a for a in res["linjer"]}
         soejler.append((f, [_mio(aar.get(a["aar"], {}).get("nav", 0)) for a in linjer],
                         farver[f], True))
-    lin = [("Akkumuleret likviditet, " + (p["scenarie_navn"] or "excel").lower(),
+    lin = [(_serie(p, "Akkumuleret likviditet"),
             [_mio(a["kum_likviditet"]) for a in linjer], SORT, False)]
     for noegle, total in (p.get("scenarier") or {}).items():
         if noegle == p["scenarie"]:
@@ -676,7 +689,7 @@ def prognose_pr_fond(prs, r, p):
     """Prognosen pr. fond: resttilsagn, kald og udlodninger de næste tre år og TVPI/IRR ved
     prognosens udgang."""
     aar0 = r["dato"].year
-    s = _slide(prs, r, "Prognose pr. fond", "beløb i mio. DKK")
+    s = _slide(prs, r, "Prognose pr. fond", f"{_metode(p)}, beløb i mio. DKK")
     fod = Fodnoter()
     rest_m = fod.maerke(f"Kun resten af {aar0}.")
     slut_m = fod.maerke(f"Ved prognosens udgang ({p['slut_aar']}), i DKK, inkl. NAV på det "

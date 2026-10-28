@@ -19,7 +19,13 @@ def test_deck(motor):
     prog = beregning.prognose(r, cfg, motor=motor)
     prs = report.byg_deck(r, prog, cfg)
     titler = [s.shapes.title.text for s in prs.slides if s.shapes.title is not None]
-    for t in ("Sammendrag", "Porteføljen pr. fond", "Forventede kapitalkald og udlodninger",
-              "Forventet NAV og likviditet", "Prognose pr. fond", "Bilag: Forudsætninger"):
+    for t in ("Sammendrag", "Porteføljen pr. fond", "Bilag: Forudsætninger",
+              "Bilag: To prognosemetoder"):
         assert t in titler
-    assert ("Bilag: To prognosemetoder" in titler) == (motor == "ta")
+    # prognosen står i to afsnit: baseline først, så den nye metode
+    for t in ("Forventede kapitalkald og udlodninger", "Forventet NAV og likviditet",
+              "Prognose pr. fond"):
+        assert titler.count(t) == 2
+    afsnit = [t for t in titler if t.startswith("Prognose –")]
+    assert afsnit == ["Prognose – baseline (Excel-metoden)",
+                      "Prognose – ny metode (Takahashi-Alexander)"]

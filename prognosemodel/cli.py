@@ -13,8 +13,10 @@ def main(argv=None):
     ap.add_argument("--dato", type=date.fromisoformat, default=None,
                     help="opgørelsesdato (standard: i dag)")
     ap.add_argument("--motor", choices=("ta", "excel"), default=None,
-                    help="prognosemotor (standard fra forudsaetninger.yaml)")
-    ap.add_argument("--scenarie", default=None, help="basis | svag | staerk")
+                    help="motoren bag de fælles statusslides (standard fra forudsaetninger.yaml); "
+                         "decket viser altid begge metoder i hvert sit afsnit")
+    ap.add_argument("--scenarie", default=None,
+                    help="scenariet for den nye metode: basis | svag | staerk")
     ap.add_argument("--out", type=Path, default=None, help="sti til decket")
     ap.add_argument("--uden-data", action="store_true", help="gem ikke _data.xlsx")
     a = ap.parse_args(argv)

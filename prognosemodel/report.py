@@ -18,7 +18,7 @@ def byg(investor, dato=None, motor=None, scenarie=None, out=None, med_data=True)
     cfg = forudsaetninger.indlaes()
     r = data.hent(investor, dato)
     p = beregning.prognose(r, cfg, motor=motor, scenarie=scenarie)
-    prs = byg_deck(r, p, cfg)
+    prs = byg_deck(r, p, cfg, scenarie)
     oenske = out or EXPORTS / f"{_filnavn(investor)}_prognose_{dato:%Y-%m-%d}.pptx"
     sti = _gem(prs, oenske)
     print(f"gemt: {sti}  ({len(r['fonde'])} fonde, {len(prs.slides._sldIdLst)} slides, "
@@ -29,7 +29,12 @@ def byg(investor, dato=None, motor=None, scenarie=None, out=None, med_data=True)
     return sti
 
 
-def byg_deck(r, p, cfg):
+def byg_deck(r, p, cfg, scenarie=None):
+    """Hele decket. p (motoren fra forudsaetninger.yaml/--motor) bruges på de fælles
+    statusslides; prognosen vises derefter i to afsnit: baseline (Excel-metoden) og den nye
+    metode (Takahashi-Alexander)."""
+    baseline = beregning.prognose(r, cfg, motor="excel")
+    ny = beregning.prognose(r, cfg, motor="ta", scenarie=scenarie)
     prs = Presentation(str(MASTER))
     _ryd_slides(prs)
     s = _ny_slide(prs, L_FORSIDE)
@@ -39,17 +44,19 @@ def byg_deck(r, p, cfg):
     slides.portefoelje(prs, r, p)
     slides.kvartalsafkast_slide(prs, r, p)
 
-    s = _ny_slide(prs, L_SKILLE[0])
-    _saet_ph(s, 0, "Prognose")
-    slides.likviditetsprognose(prs, r, p)
-    slides.nav_prognose(prs, r, p)
-    slides.prognose_pr_fond(prs, r, p)
+    for i, (titel, prog) in enumerate((("Prognose – baseline (Excel-metoden)", baseline),
+                                       ("Prognose – ny metode (Takahashi-Alexander)", ny))):
+        s = _ny_slide(prs, L_SKILLE[i])
+        _saet_ph(s, 0, titel)
+        slides.likviditetsprognose(prs, r, prog)
+        slides.nav_prognose(prs, r, prog)
+        slides.prognose_pr_fond(prs, r, prog)
 
     s = _ny_slide(prs, L_SKILLE[2])
     _saet_ph(s, 0, "Bilag")
-    slides.forudsaetninger(prs, r, p, cfg)
-    slides.sammenligning(prs, r, p)
-    slides.metode(prs, r, p)
+    slides.forudsaetninger(prs, r, ny, cfg)
+    slides.sammenligning(prs, r, ny)
+    slides.metode(prs, r, ny)
     _ny_slide(prs, L_SLUT)
     slides.sidefod(prs, r["navn"])          # til sidst, så sidetallene er endelige
     return prs

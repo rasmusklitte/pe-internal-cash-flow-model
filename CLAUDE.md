@@ -63,6 +63,10 @@ The pipeline is `report.byg` → `data.hent` → `beregning.prognose` → `slide
 - **`forudsaetninger.py` + `config/forudsaetninger.yaml`** hold all assumptions: per-fund growth, life, TA profile and Excel RC/RD per calendar year, TA profiles, scenarios and per-investor overrides.
   - Validation is strict: unknown keys or rates outside 0..1 raise an error.
   - The Excel RC/RD rates are per calendar year and must be rolled forward yearly; TA needs no yearly upkeep.
+- **Deck order (`report.byg_deck`):**
+  - Shared status slides (summary, per fund, quarterly returns) use the engine from `generelt.motor` / `--motor`.
+  - Then two forecast sections, each with the calls/distributions, NAV/liquidity and per-fund slides: first the baseline (Excel method), then the new method (Takahashi-Alexander, scenario from `--scenarie`). Each slide's subtitle names its method.
+  - Then the appendix.
 - **`slides.py`** has one function per slide.
   - Its building blocks (`_tabel`, `Fodnoter`, `_diagramakser`, `_linjeplot` for column+line combos, `sidefod`, Danish number formats) are lifted from pe-fund-report's `slides.py`.
   - `deck.py` and `style.py` are byte-identical copies shared across the PE repos; don't edit them.
