@@ -7,8 +7,9 @@
 #   ta     Takahashi-Alexander (Yale), kvartalsvis i fondens valuta. Kald = kaldsrate x
 #          resttilsagn ved leveårets start; udlodning = NAV x max(udbytte, (alder/løbetid)^bow).
 #          Kræver ingen årlig vedligeholdelse - standard i decket.
-#   excel  Det gamle Excel-arks metode: RC (andel af tilsagnet) og RD (andel af NAV året før)
-#          pr. kalenderår. RC/RD skal rulles frem hvert år.
+#   excel  Intern metode (som i det gamle Excel-ark): RC (andel af tilsagnet) og RD (andel af
+#          NAV året før) pr. kalenderår, sat ud fra fondenes meldinger om forventet likviditet.
+#          RC/RD skal rulles frem hvert år.
 
 generelt:
   motor: ta              # ta | excel
@@ -23,61 +24,76 @@ generelt:
 fonde:
   Private Equity I:
     vaekst: 0.12
-    loebetid_aar: 10
-    ta: {profil: Secondaries}
+    loebetid_aar: 13
+    ta: {profil: Private Equity I}
     excel:
       rc: {}
       rd: {2026: 0.10, 2027: 0.25, 2028: 0.45, 2029: 0.45, 2030: 0.50, 2031: 0.80, 2032: 1.0}
   Private Equity II:
     vaekst: 0.12
-    loebetid_aar: 10
-    ta: {profil: Secondaries}
+    loebetid_aar: 11.5
+    ta: {profil: Private Equity II}
     excel:
       rc: {2026: 0.10, 2027: 0.10}
       rd: {2029: 0.10, 2030: 0.35, 2031: 0.50, 2032: 0.60, 2033: 0.80, 2034: 1.0}
   Private Credit I:
     vaekst: 0.11
     loebetid_aar: 10
-    ta: {profil: Private credit}
+    ta: {profil: Private Credit I}
     excel:
       rc: {}
       rd: {2026: 0.20, 2027: 0.40, 2028: 0.50, 2029: 0.80, 2030: 1.0}
   Private Credit II:
     vaekst: 0.11
-    loebetid_aar: 10
-    ta: {profil: Private credit}
+    loebetid_aar: 12.5
+    ta: {profil: Private Credit II}
     excel:
       rc: {2026: 0.15, 2027: 0.25, 2028: 0.05}
       rd: {2028: 0.10, 2029: 0.30, 2030: 0.30, 2031: 0.30, 2032: 0.60, 2033: 0.80, 2034: 0.80, 2035: 1.0}
   Maritime:
     vaekst: 0.13
-    loebetid_aar: 10
+    loebetid_aar: 9.75
     ta: {profil: Maritime}
     excel:
       rc: {2026: 0.20, 2027: 0.20, 2028: 0.20}
       rd: {2029: 0.20, 2030: 0.40, 2031: 0.50, 2032: 0.50, 2033: 0.50, 2034: 1.0}
   FoF:
     vaekst: 0.12
-    loebetid_aar: 12
-    ta: {profil: Fund of funds}
+    loebetid_aar: 10.75
+    ta: {profil: FoF}
     excel:
       rc: {2026: 0.21, 2027: 0.19, 2028: 0.11, 2029: 0.03}
       rd: {2030: 0.04, 2031: 0.10, 2032: 0.10, 2033: 0.20, 2034: 0.20, 2035: 1.0}
 
-# Takahashi-Alexander-profiler (fra pe-fund-report/config/cashflow_profiler.yaml).
-# Fondenes valg af profil (Newbury = Secondaries, Park Square = Private credit, Maritime
-# egen profil) er godkendt 28.10.2026.
+# Takahashi-Alexander-profiler.
 #   kaldsrater    årlig andel af resttilsagnet pr. leveår (sidste gentages)
 #   kald_til_aar  ingen kald efter dette leveår
 #   bow           udlodningskurvens form: højere = senere udlodninger
 #   udbytte       mindste årlige udlodning af NAV (løbende afkast, fx renter)
 # vaekst og loebetid_aar tages fra fonden ovenfor.
+#
+# Hver fond har sin egen profil, kalibreret 29.10.2026 til den interne metode (RC/RD ovenfor),
+# så de to metoder giver omtrent samme kald, udlodninger, TVPI og IRR. loebetid_aar ovenfor
+# er sat, så TA udlodder resten i den interne metodes Exit-år. Kalibrér igen, når RC/RD
+# ændres:  python scripts/kalibrer.py  (udskriver nye profiler og løbetider til at indsætte).
+# Kaldsraterne for leveår før i dag påvirker ikke prognosen.
 profiler:
+  Private Equity I:  {kaldsrater: [0.4, 0.45], kald_til_aar: 7, bow: 3.3, udbytte: 0.05}
+  Private Equity II: {kaldsrater: [0.4, 0.45, 0.45, 0.43, 0.41, 0.38], kald_til_aar: 3.75, bow: 3.7, udbytte: 0.0}
+  Private Credit I:  {kaldsrater: [0.3, 0.4], kald_til_aar: 6, bow: 3.2, udbytte: 0.06}
+  Private Credit II: {kaldsrater: [0.3, 0.4, 0.4, 0.75, 0.31, 0.27, 0.28], kald_til_aar: 5.25, bow: 2.8, udbytte: 0.01}
+  Maritime:          {kaldsrater: [0.3, 0.54, 0.28, 0.43, 0.42], kald_til_aar: 3.75, bow: 2.3, udbytte: 0.0}
+  FoF:               {kaldsrater: [0.15, 0.5, 0.2, 0.18, 0.08, 0.04, 0.0], kald_til_aar: 8, bow: 8.0, udbytte: 0.04}
+
+  # Generiske profiler (fra pe-fund-report/config/cashflow_profiler.yaml). Indtil 29.10.2026
+  # brugte fondene dem (Newbury = Secondaries, Park Square = Private credit, Maritime egen
+  # profil, godkendt 28.10.2026). Skift tilbage med fx  ta: {profil: Secondaries}  og
+  # loebetid_aar: 10 (FoF 12).
   Private equity: {kaldsrater: [0.25, 0.33, 0.40, 0.40, 0.40], kald_til_aar: 8, bow: 2.5, udbytte: 0.0}
   Fund of funds:  {kaldsrater: [0.15, 0.20, 0.25, 0.30, 0.30], kald_til_aar: 10, bow: 2.5, udbytte: 0.0}
   Secondaries:    {kaldsrater: [0.40, 0.45, 0.45], kald_til_aar: 6, bow: 1.5, udbytte: 0.05}
   Private credit: {kaldsrater: [0.30, 0.40, 0.40], kald_til_aar: 6, bow: 1.5, udbytte: 0.06}
-  Maritime:       {kaldsrater: [0.30, 0.40, 0.40, 0.40], kald_til_aar: 5, bow: 2.0, udbytte: 0.0}
+  Maritime (generisk): {kaldsrater: [0.30, 0.40, 0.40, 0.40], kald_til_aar: 5, bow: 2.0, udbytte: 0.0}
 
 # Scenarier lægges oven på profilen: vaekst + ændring; bow, udbytte og kaldsrater x faktor.
 scenarier:

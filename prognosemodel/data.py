@@ -10,6 +10,8 @@ Definitioner (som i de gamle procedurer, se docs/legacy_sql/):
 - Indbetalt (til tilsagnet) = OPKRÆVET; kontant betalt = BELOEB / BETALT_DKK.
 - KØB/SALG er handler mellem investorer: prisen er en betaling, og OPKRÆVET flyttes med.
 """
+import difflib
+import re
 from datetime import date
 
 import pandas as pd
@@ -29,6 +31,52 @@ def _dato(v):
 
 def investorer():
     return db.sql_fil("investorer")
+
+
+def normaliser(navn):
+    """Små bogstaver uden tegnsætning: 'C.R. ApS', 'cr aps' og 'CR  APS' bliver ens."""
+    s = re.sub(r"[.,/']", "", str(navn).casefold().replace("-", " "))
+    return " ".join(s.split())
+
+
+def find_investor(soeg, navne, graense=0.6, maks=8):
+    """Investornavne, der ligner søgningen, som [(navn, score)] med det bedste først.
+
+    1.0 = ens efter normalisering; 0.95 = hvert søgeord er et helt ord i navnet;
+    0.9 = hvert søgeord er starten af et ord; 0.85 = søgningen står inde i navnet;
+    ellers difflibs lighed (fanger stavefejl)."""
+    s = normaliser(soeg)
+    if not s:
+        return []
+    ord_s = s.split()
+    fund = []
+    for navn in navne:
+        n = normaliser(navn)
+        ord_n = n.split()
+        if n == s:
+            score = 1.0
+        elif all(o in ord_n for o in ord_s):
+            score = 0.95
+        elif all(any(w.startswith(o) for w in ord_n) for o in ord_s):
+            score = 0.9
+        elif s in n:
+            score = 0.85
+        else:
+            score = difflib.SequenceMatcher(None, s, n).ratio()
+        if score >= graense:
+            fund.append((navn, score))
+    fund.sort(key=lambda t: (-t[1], t[0]))
+    return fund[:maks]
+
+
+def naermeste_investorer(soeg, navne, antal=5):
+    """De navne, der ligner mest, uanset grænse (forslag, når intet passer)."""
+    s = normaliser(soeg)
+
+    def lighed(navn):
+        return difflib.SequenceMatcher(None, s, normaliser(navn)).ratio()
+
+    return sorted(navne, key=lighed, reverse=True)[:antal]
 
 
 def hent(navn, dato=None):

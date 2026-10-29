@@ -27,5 +27,5 @@ def test_deck(motor):
               "Prognose pr. fond"):
         assert titler.count(t) == 2
     afsnit = [t for t in titler if t.startswith("Prognose –")]
-    assert afsnit == ["Prognose – baseline (Excel-metoden)",
+    assert afsnit == ["Prognose – baseline (intern metode)",
                       "Prognose – ny metode (Takahashi-Alexander)"]

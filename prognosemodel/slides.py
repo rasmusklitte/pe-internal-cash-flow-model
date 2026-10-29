@@ -391,7 +391,7 @@ def _aar_note(r):
 def _metode(p):
     """Metodens navn til undertitlen, så de to prognoseafsnit ikke kan forveksles."""
     if p["motor"] == "excel":
-        return "baseline: Excel-metoden"
+        return "baseline: intern metode"
     return f"ny metode: Takahashi-Alexander, {p['scenarie_navn'].lower()}"
 
 
@@ -402,11 +402,13 @@ def _serie(p, tekst):
 
 def _motor_note(p):
     if p["motor"] == "excel":
-        return ("Prognosen følger metoden fra det tidligere Excel-ark: kald = RC x tilsagn, "
-                "udlodning = RD x NAV året før, NAV vokser med P&P's forventede afkast.")
+        return ("Prognosen følger den interne metode: kald = RC x tilsagn og udlodning = RD x NAV "
+                "året før, med satser pr. fond og år ud fra fondenes egne meldinger om forventet "
+                "likviditet. NAV vokser med P&P's forventede afkast.")
     return (f"Prognosen er en Takahashi-Alexander-model (scenarie: {p['scenarie_navn']}): "
             "kald som andel af resttilsagnet, udlodninger stigende med fondens alder, NAV "
-            "vokser med P&P's forventede afkast. Se forudsætningerne i bilaget.")
+            "vokser med P&P's forventede afkast. Profilerne er kalibreret pr. fond til den "
+            "interne metode. Se forudsætningerne i bilaget.")
 
 
 def _handel_note(r):
@@ -734,6 +736,11 @@ def prognose_pr_fond(prs, r, p):
     return s
 
 
+def _aar_tal(v):
+    """År med dansk komma og kun de decimaler, der er brug for: 10, 9,75, 12,5."""
+    return style._dk(v, 0 if v == int(v) else 2 if v * 2 != int(v * 2) else 1)
+
+
 def forudsaetninger(prs, r, p, cfg):
     """Bilag: forudsætningerne pr. fond og scenarierne."""
     s = _slide(prs, r, "Bilag: Forudsætninger", "satser pr. år")
@@ -748,11 +755,13 @@ def forudsaetninger(prs, r, p, cfg):
         m = lambda *k, afv=afv: (fod.maerke(afv_tekst)
                                  if any(x in afv or f"ta.{x}" in afv for x in k) else "")
         raekker.append([f["fond"], fs["profil"] + m("profil"), pct(fs["vaekst"], 0) + m("vaekst"),
-                        f"{fs['loebetid_aar']} år" + m("loebetid_aar"),
+                        f"{_aar_tal(fs['loebetid_aar'])} år" + m("loebetid_aar"),
                         " / ".join(pct(x, 0) for x in ta["kaldsrater"]) + m("kaldsrater"),
-                        str(ta.get("kald_til_aar") or "-") + m("kald_til_aar"),
+                        (_aar_tal(ta["kald_til_aar"]) if ta.get("kald_til_aar") else "-")
+                        + m("kald_til_aar"),
                         style._dk(ta["bow"], 1) + m("bow"), pct(ta["udbytte"], 0) + m("udbytte")])
-    _tekst(s, X0, Y_TOP, X1 - X0, 0.22, "Takahashi-Alexander (standard)", 10.5, fed=True,
+    _tekst(s, X0, Y_TOP, X1 - X0, 0.22, "Takahashi-Alexander (standard; profiler kalibreret til den "
+           "interne metode)", 10.5, fed=True,
            farve=SAGE)
     _tabel(s, X0, Y_TOP + 0.3, X1 - X0, raekker, bredder=[1.8, 1.3, 0.7, 0.7, 2.4, 0.8, 0.6, 1.1],
            just=[V, V, H, H, V, H, H, H], raekke_h=0.25, pt=8.5, hoved=True, zebra=True)
@@ -765,7 +774,7 @@ def forudsaetninger(prs, r, p, cfg):
                                          for a in aarene])
         rcrd.append(["", "RD"] + [pct(fs["rd"].get(a), 0) if fs["rd"].get(a) else "-"
                                   for a in aarene])
-    _tekst(s, X0, y, X1 - X0, 0.22, "Excel-metoden: RC (andel af tilsagn) og RD (andel af NAV "
+    _tekst(s, X0, y, X1 - X0, 0.22, "Intern metode: RC (andel af tilsagn) og RD (andel af NAV "
            "året før; 100 % = exit)", 10.5, fed=True, farve=SAGE)
     rh = min(0.2, (fod.y() - y - 0.4) / len(rcrd))
     _tabel(s, X0, y + 0.3, X1 - X0, rcrd, bredder=[1.8, 0.5] + [0.65] * len(aarene),
@@ -801,8 +810,9 @@ def metode(prs, r, p):
          "efter fondens alder; udlodninger som en andel af NAV, der stiger mod løbetidens "
          "udgang; NAV vokser med P&P's forventede afkast. Tre scenarier varierer afkast og "
          "udlodningstempo."),
-        ("Prognose (Excel-metoden).", "Den tidligere model: årlige satser for kald (RC, andel af "
-         "tilsagnet) og udlodning (RD, andel af NAV året før) fastsat pr. fond og år."),
+        ("Prognose (intern metode).", "Årlige satser for kald (RC, andel af tilsagnet) og "
+         "udlodning (RD, andel af NAV året før) pr. fond og år, fastsat ud fra fondenes "
+         "meldinger om forventede kald og udlodninger."),
         ("Forbehold.", "Prognosen er et skøn. Faktiske kald, udlodninger og afkast afhænger af "
          "forvalternes beslutninger og markedsudviklingen og kan afvige væsentligt."),
     ]
@@ -811,14 +821,14 @@ def metode(prs, r, p):
 
 
 def sammenligning(prs, r, p):
-    """Bilag: TA-prognosen mod Excel-metoden (netto pr. år og TVPI/IRR pr. fond)."""
+    """Bilag: TA-prognosen mod den interne metode (netto pr. år og TVPI/IRR pr. fond)."""
     if p["motor"] != "ta" or not p.get("excel"):
         return None
     s = _slide(prs, r, "Bilag: To prognosemetoder", "beløb i mio. DKK")
     fod = Fodnoter()
-    fod.generel(_aar_note(r), "Excel-metoden med satserne på forrige side; Takahashi-Alexander i "
+    fod.generel(_aar_note(r), "Intern metode med satserne på forrige side; Takahashi-Alexander i "
                 f"scenariet {p['scenarie_navn']}.")
-    hoved = ["Fond", "TVPI, TA", "TVPI, Excel", "IRR, TA", "IRR, Excel"]
+    hoved = ["Fond", "TVPI, TA", "TVPI, intern", "IRR, TA", "IRR, intern"]
     raekker = [hoved]
     for f in r["fonde"]:
         ta, ex = p["fonde"][f["fond"]], p["excel"][f["fond"]]
@@ -835,7 +845,7 @@ def sammenligning(prs, r, p):
     _tekst(s, x, Y_TOP, X1 - x, 0.22, "Netto cash flow pr. år", 11, fed=True)
     _kombi(s, x, Y_TOP + 0.24, X1 - x, fod.y() - 0.08 - Y_TOP - 0.24, kat,
            [("Takahashi-Alexander", [_mio(a["netto"]) for a in ta], SAGE, True),
-            ("Excel-metoden", [_mio(ex[a["aar"]]["netto"]) if a["aar"] in ex else None
+            ("Intern metode", [_mio(ex[a["aar"]]["netto"]) if a["aar"] in ex else None
                                for a in ta], TAUPE, True)], [], stablet=False)
     fod.tegn(s)
     return s

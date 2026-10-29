@@ -31,7 +31,7 @@ def byg(investor, dato=None, motor=None, scenarie=None, out=None, med_data=True)
 
 def byg_deck(r, p, cfg, scenarie=None):
     """Hele decket. p (motoren fra forudsaetninger.yaml/--motor) bruges på de fælles
-    statusslides; prognosen vises derefter i to afsnit: baseline (Excel-metoden) og den nye
+    statusslides; prognosen vises derefter i to afsnit: baseline (intern metode) og den nye
     metode (Takahashi-Alexander)."""
     baseline = beregning.prognose(r, cfg, motor="excel")
     ny = beregning.prognose(r, cfg, motor="ta", scenarie=scenarie)
@@ -44,7 +44,7 @@ def byg_deck(r, p, cfg, scenarie=None):
     slides.portefoelje(prs, r, p)
     slides.kvartalsafkast_slide(prs, r, p)
 
-    for i, (titel, prog) in enumerate((("Prognose – baseline (Excel-metoden)", baseline),
+    for i, (titel, prog) in enumerate((("Prognose – baseline (intern metode)", baseline),
                                        ("Prognose – ny metode (Takahashi-Alexander)", ny))):
         s = _ny_slide(prs, L_SKILLE[i])
         _saet_ph(s, 0, titel)
@@ -102,7 +102,7 @@ def _gem_xlsx(r, p, outfile):
             fonde.to_excel(xw, sheet_name="Fonde", index=False)
             total.to_excel(xw, sheet_name="Prognose total", index=False)
             prognose.to_excel(xw, sheet_name=f"Prognose pr fond ({p['motor']})", index=False)
-            excel.to_excel(xw, sheet_name="Excel-metoden", index=False)
+            excel.to_excel(xw, sheet_name="Intern metode", index=False)
             kvartaler.to_excel(xw, sheet_name="Kvartaler", index=False)
             betalinger.to_excel(xw, sheet_name="Betalinger", index=False)
             fs.to_excel(xw, sheet_name="Forudsaetninger", index=False)

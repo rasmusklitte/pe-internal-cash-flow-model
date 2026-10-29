@@ -11,11 +11,13 @@ A Python rebuild of the old Excel cash-flow forecast `assets/alternativer_progno
 ```
 pip install -e .[dev]
 python -m prognosemodel "CR ApS"                       # deck pr. i dag -> exports/
+python -m prognosemodel "cr"                           # omtrentligt navn: spørger ved tvivl (--ja: kun ved ét fund)
 python -m prognosemodel "CR ApS" --dato 2026-10-18 --motor excel --scenarie svag --uden-data
 pytest                                                 # no DB needed
 pytest tests/test_prognose_excel.py::test_gentager_arket -q
 ruff check .
 python scripts/afstem.py ["CR ApS" ...]                # reconcile against the legacy procedures (DB)
+python scripts/kalibrer.py [--dato ...] ["CR ApS" ...]  # calibrate TA profiles to the internal method (DB)
 ```
 
 `exports/` and `log/` are git-ignored: they contain investor data.
@@ -62,10 +64,16 @@ The pipeline is `report.byg` → `data.hent` → `beregning.prognose` → `slide
   - The Excel engine always runs too, for the comparison slide.
 - **`forudsaetninger.py` + `config/forudsaetninger.yaml`** hold all assumptions: per-fund growth, life, TA profile and Excel RC/RD per calendar year, TA profiles, scenarios and per-investor overrides.
   - Validation is strict: unknown keys or rates outside 0..1 raise an error.
-  - The Excel RC/RD rates are per calendar year and must be rolled forward yearly; TA needs no yearly upkeep.
+  - The Excel RC/RD rates are per calendar year and must be rolled forward yearly.
+  - Each fund has its own TA profile (named after the fund), plus a `loebetid_aar` that `kalibrering.py` calibrated to the internal method. The generic profiles are kept for switching back.
+    - The calibration sums all investors per fund (both engines are linear).
+    - It fits the yearly calls/distributions plus TVPI/IRR, and sets the life so that TA exits in the internal method's Exit year.
+    - Rerun `scripts/kalibrer.py` and paste its output whenever RC/RD change.
+    - The remaining IRR gap (≤ ~0.7 pp) is structural: the internal method grows from NAV at 31.12 of last year, while TA grows from today's market value.
+  - The `excel` engine is shown on slides as "Intern metode". Its RC/RD rates reflect the liquidity expectations the funds have communicated, so slide text describes it that way and not as "the old Excel sheet".
 - **Deck order (`report.byg_deck`):**
   - Shared status slides (summary, per fund, quarterly returns) use the engine from `generelt.motor` / `--motor`.
-  - Then two forecast sections, each with the calls/distributions, NAV/liquidity and per-fund slides: first the baseline (Excel method), then the new method (Takahashi-Alexander, scenario from `--scenarie`). Each slide's subtitle names its method.
+  - Then two forecast sections, each with the calls/distributions, NAV/liquidity and per-fund slides: first the baseline ("Intern metode", engine `excel`), then the new method (Takahashi-Alexander, scenario from `--scenarie`). Each slide's subtitle names its method.
   - Then the appendix.
 - **`slides.py`** has one function per slide.
   - Its building blocks (`_tabel`, `Fodnoter`, `_diagramakser`, `_linjeplot` for column+line combos, `sidefod`, Danish number formats) are lifted from pe-fund-report's `slides.py`.
